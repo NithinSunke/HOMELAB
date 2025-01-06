@@ -1,0 +1,13 @@
+---
+- name: display pre installation of Oracle GI software message
+  debug:
+    msg:
+      - 'This playbook is for installing Oracle RAC GI software 19c , started at {{ansible_date_time.iso8601}}:'
+
+- name: Preparation tasks for installing Oracle GI software
+  block:
+  #  - import_tasks: prepare_disk.yml 
+    - import_tasks: shared_disks.yml
+
+
+  

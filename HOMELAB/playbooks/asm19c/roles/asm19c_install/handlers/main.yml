@@ -1,0 +1,5 @@
+- name: run partprobe
+  command: /sbin/partprobe
+  
+- name: run udevadm
+  command: /sbin/udevadm control --reload-rules

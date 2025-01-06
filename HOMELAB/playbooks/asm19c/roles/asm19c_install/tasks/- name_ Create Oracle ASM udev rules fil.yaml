@@ -1,0 +1,43 @@
+- name: Create Oracle ASM udev rules file
+  copy:
+    dest: /etc/udev/rules.d/99-oracle-asmdevices.rules
+    content: |
+      KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/usr/lib/udev/scsi_id -g -u -d /dev/\$parent", RESULT=="{{ asm_disk1 }}", SYMLINK+="oracleasm/asm-crs-disk1", OWNER="grid", GROUP="asmadmin", MODE="0660"
+      KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/usr/lib/udev/scsi_id -g -u -d /dev/\$parent", RESULT=="{{ asm_disk2 }}", SYMLINK+="oracleasm/asm-data-disk1", OWNER="grid", GROUP="asmadmin", MODE="0660"
+      KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/usr/lib/udev/scsi_id -g -u -d /dev/\$parent", RESULT=="{{ asm_disk3 }}", SYMLINK+="oracleasm/asm-reco-disk1", OWNER="grid", GROUP="asmadmin", MODE="0660"
+  owner: root
+  group: root
+  mode: '0644'
+
+
+- name: Run partprobe for all disks
+  command: "/sbin/partprobe /dev/{{ item }}1"
+  loop:
+    - sdd
+    - sde
+    - sdf
+  register: partprobe_results
+  ignore_errors: yes
+
+- name: Run udevadm control --reload-rules
+  shell: /sbin/udevadm control --reload-rules
+
+- name: Run partprobe again after reloading udev rules
+  command: "/sbin/partprobe /dev/{{ item }}1"
+  loop:
+    - sdd
+    - sde
+    - sdf
+  register: partprobe_results_2
+  ignore_errors: yes
+
+- name: Reload udev rules again
+  command: /sbin/udevadm control --reload-rules
+
+- name: List Oracle ASM disk symlinks
+  command: ls -al /dev/oracleasm/*
+  register: asm_symlinks
+
+- name: Show Oracle ASM symlinks
+  debug:
+    var: asm_symlinks.stdout_lines

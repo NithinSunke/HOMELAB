@@ -1,0 +1,11 @@
+DOMAIN_NAME: "scslabs.xyz"
+ORACLE_TERM: "xterm"
+oracle_user:  "oracle"
+grid_user: grid
+root_user: root
+node_fq_hostname:      "osiasmdb01.scslabs.xyz"
+interface: "eth0" 
+new_ip: "192.168.1.30"
+new_netmask: "255.255.255.0"
+new_gateway: "192.168.1.1"
+dns_servers: "192.168.1.10"
