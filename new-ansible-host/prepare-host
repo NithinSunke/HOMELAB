@@ -1,7 +1,0 @@
-#create user nsunke
-#create a sudo user file for the user
-#change the permision to the sudo user file
-run below script
-cd /u01
-sudo ./ansible-user-creation.sh ansadm
-passwd ansadm
