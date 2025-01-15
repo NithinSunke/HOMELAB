@@ -1,0 +1,73 @@
+- name: Install LVM2 package
+  yum:
+    name: lvm2
+    state: present
+
+- name: Create physical volume (PV) on the disk
+  lvm_physical_volume:
+    pv: "{{ item.device }}"
+  with_items: "{{ disks }}"
+  register: pv_results
+
+- name: Display physical volume creation results
+  debug:
+    var: pv_results.results
+
+- name: Create volume group (VG)
+  lvm_volume_group:
+    vg: "{{ item.volume_group }}"
+    pvs: "{{ item.device }}"
+    state: present
+  with_items: "{{ disks }}"
+  when: inventory_hostname == 'db-server.example.com'
+
+- name: Display volume group creation results
+  debug:
+    var: vg_results.results
+
+- name: Create logical volume (LV)
+  lvm_logical_volume:
+    vg: "{{ item.volume_group }}"
+    lv: "{{ item.logical_volume }}"
+    size: "{{ item.size }}"
+    state: present
+  with_items: "{{ disks }}"
+ 
+- name: Display logical volume creation results
+  debug:
+    var: lv_results.results
+
+- name: Create XFS filesystem on logical volumes
+  filesystem:
+    fstype: xfs
+    dev: "/dev/{{ item.volume_group }}/{{ item.logical_volume }}"
+    state: present
+  with_items: "{{ disks }}"
+
+- name: Create mount points
+  file:
+    path: "{{ item.mount_point }}"
+    state: directory
+    mode: '0755'
+  with_items: "{{ disks }}"
+
+- name: Get UUIDs of logical volumes
+  command: blkid -o value /dev/{{ item.volume_group }}/{{ item.logical_volume }}
+  register: blkid_results
+  with_items: "{{ disks }}"
+  changed_when: false
+
+- name: Ensure /etc/fstab entries for the logical volumes
+  lineinfile:
+    path: /etc/fstab
+    line: "UUID={{ blkid_results.results[ansible_loop.index0].stdout }}  {{ item.mount_point }}    xfs    defaults 1 2"
+    state: present
+  with_items: "{{ disks }}"
+
+- name: Mount the logical volumes
+  mount:
+    path: "{{ item.mount_point }}"
+    src: "UUID={{ blkid_results.results[ansible_loop.index0].stdout }}"
+    fstype: xfs
+    state: mounted
+  with_items: "{{ disks }}"

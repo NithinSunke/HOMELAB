@@ -1,0 +1,31 @@
+---
+- name: Create grid home directory
+  file:
+    path: "{{ grid_home }}"
+    state: directory
+    owner: grid
+    group: oinstall
+    mode: '0755'
+- name: Copy a file and unzip on the remote server
+  copy:
+    src: "/u01/soft/LINUX.X64_193000_grid_home.zip"  # Path to the file on the Ansible control host
+    dest: "{{ grid_home }}/LINUX.X64_193000_grid_home.zip"  # Path on the remote server where the file will be copied
+
+- name: Unzip Oracle Grid installation files
+  become: yes
+  become_user: grid
+  unarchive:
+    src: "{{ grid_home }}/LINUX.X64_193000_grid_home.zip"
+    dest: "{{ grid_home }}"
+    remote_src: yes
+
+- name: Install cvuqdisk RPM
+  yum:
+    name: "{{ grid_home }}/cv/rpm/cvuqdisk-1.0.10-1.rpm"
+    state: present
+- name: ownership of  grid home directory
+  file:
+    path: "{{ grid_home }}"
+    owner: grid
+    group: oinstall
+

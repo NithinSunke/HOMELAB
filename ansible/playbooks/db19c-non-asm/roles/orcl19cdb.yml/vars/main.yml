@@ -1,0 +1,38 @@
+DOMAIN_NAME: "scslabs.com"
+ORACLE_TERM: "xterm"
+oracle_user:  "oracle"
+root_user: root
+node_fq_hostname:      "odb19c01.scslabs.com"
+interface: "eth0" 
+new_ip: "192.168.1.21"
+new_netmask: "255.255.255.0"
+new_gateway: "192.168.1.1"
+dns_servers: "192.168.1.10"
+ORACLE_BASE: /u01/app/oracle
+ORA_INVENTORY: /u01/app/oraInventory
+ORACLE_HOME_EXT: product/19.0.0/dbhome_1
+ORACLE_HOME: ${ORACLE_BASE}/${ORACLE_HOME_EXT}
+# Database installation settings.
+SOFTWARE_DIR: /u01/software
+DB_SOFTWARE: "LINUX.X64_193000_db_home.zip"
+SCRIPTS_DIR: /home/oracle/scripts
+ORACLE_SID: cdb1
+ORACLE_UNQNAME: ${ORACLE_SID}
+SYS_PASSWORD: "Nithin#0712"
+PDB_NAME: "pdb1"
+PDB_PASSWORD: "Nithin#0712"
+DATA_DIR: /u02/oradata
+SOFTWARE_DIR: "/u01/software"
+DB_PORT: "1521"
+DB_SERVICE: "pdb1"
+disks:
+  - mount_point: /u01
+    device: /dev/sdb
+    volume_group: vg_data
+    logical_volume: lv_data01
+    size: 100%FREE
+  - mount_point: /u02
+    device: /dev/sdc
+    volume_group: vg_data
+    logical_volume: lv_data02
+    size: 100%FREE

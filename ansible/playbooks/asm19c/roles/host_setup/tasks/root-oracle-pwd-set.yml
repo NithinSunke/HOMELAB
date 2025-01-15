@@ -9,11 +9,3 @@
      name: oracle
      password: "{{ ORACLE_PASSWORD  | password_hash('sha512') }}"
 
-- name: Change ownership of /u01 to oracle user
-  file:
-    path: /u01
-    state: directory
-    owner: oracle
-    group: oinstall
-    mode: '0775'
-    recurse: yes
