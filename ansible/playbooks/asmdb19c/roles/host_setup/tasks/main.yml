@@ -1,0 +1,13 @@
+---
+- name: setup oracle linux server for Oracle 19c ASM DB installation
+  debug:
+    msg:
+      - 'This playbook is for setup oracle linux server for Oracle 19c ASM DB installation , started at {{ansible_date_time.iso8601}}:'
+
+- name: Preparation tasks for server setup
+  block:
+    - import_tasks: networksetup.yml
+    - import_tasks: set-hostname.yml 
+    - import_tasks: install_os_packages.yml
+    - import_tasks: group-user-creation.yml
+    - import_tasks: root-oracle-pwd-set.yml

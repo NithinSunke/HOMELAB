@@ -1,0 +1,116 @@
+---
+- name: Check if the disk exists
+  stat:
+    path: /dev/sdb
+  register: disk_status
+
+- name: Fail if the disk does not exist
+  fail:
+    msg: "Disk /dev/sdb does not exist!"
+  when: not disk_status.stat.exists
+
+# 2. Create a partition on the disk
+- name: Create a new partition
+  parted:
+    device: "{{ disk_device1 }}"
+    number: 1
+    state: present
+    flags: [ lvm ]
+    part_start: 1MiB
+  register: parted_result
+  when: disk_status.stat.exists
+
+- name: Verify partition creation
+  debug:
+    msg: "Partition created on {{ disk_device1 }}"
+
+# 3. install lvm2 package
+- name: install lvm2 package
+  yum:
+    name: lvm2
+    state: present
+
+# 4. Create a Physical Volume
+- name: Create Physical Volume
+  command: pvcreate {{ pv_name1 }}
+  when: parted_result.changed
+
+- name: Verify Physical Volume
+  command: pvdisplay {{ pv_name1 }}
+  register: pv_display
+  changed_when: false
+  failed_when: false
+- name: Show Physical Volume details
+  debug:
+    msg: "{{ pv_display.stdout }}"
+
+# 5. Create a Volume Group
+- name: Create Volume Group
+  command: vgcreate {{ vg_name1 }} {{ pv_name1 }}
+  when: pv_display.stdout is search('PV Name')
+
+- name: Verify Volume Group creation
+  command: vgdisplay {{ vg_name1 }}
+  register: vg_display
+  changed_when: false
+  failed_when: false
+
+- name: Show Volume Group details
+  debug:
+    msg: "{{ vg_display.stdout }}"
+
+# 6. Create a Logical Volume
+- name: Create Logical Volume
+  command: lvcreate -n {{ lv_name1 }} -l 100%FREE {{ vg_name1 }}
+  when: vg_display.stdout is search('VG Name')
+
+- name: Verify Logical Volume creation
+  command: lvdisplay /dev/{{ vg_name1 }}/{{ lv_name1 }}
+  register: lv_display
+  changed_when: false
+  failed_when: false
+
+- name: Show Logical Volume details
+  debug:
+    msg: "{{ lv_display.stdout }}"
+
+# 7. Format the Logical Volume
+- name: Format the Logical Volume with {{ fs_type }}
+  filesystem:
+    fstype: "{{ fs_type }}"
+    dev: "/dev/{{ vg_name1 }}/{{ lv_name1 }}"
+  when: lv_display.stdout is search('LV Name')
+
+# 8. Mount the partition
+- name: Create the mount point
+  file:
+    path: "{{ mount_point1 }}"
+    state: directory
+
+# 7. Mount the Logical Volume
+- name: Mount the Logical Volume
+  mount:
+    path: "{{ mount_point1 }}"
+    src: "/dev/{{ vg_name1 }}/{{ lv_name1 }}"
+    fstype: "{{ fs_type }}"
+    state: mounted
+# 8. Persist the mount in /etc/fstab
+- name: Configure mount in /etc/fstab
+  mount:
+    path: "{{ mount_point1 }}"
+    src: "/dev/{{ vg_name1 }}/{{ lv_name1 }}"
+    fstype: "{{ fs_type }}"
+    opts: "defaults"
+    dump: 0
+    passno: 0
+    state: present
+  ignore_errors: yes
+
+- name: Change ownership of /u01 to oracle user
+  file:
+    path: /u01
+    state: directory
+    owner: grid
+    group: oinstall
+    mode: '0775'
+    recurse: yes

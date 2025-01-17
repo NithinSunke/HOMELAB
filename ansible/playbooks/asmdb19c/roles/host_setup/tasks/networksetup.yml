@@ -1,0 +1,46 @@
+---
+- name: Backup current network configuration
+  copy:
+    src: "/etc/sysconfig/network-scripts/ifcfg-{{ interface }}"
+    dest: "/etc/sysconfig/network-scripts/ifcfg-{{ interface }}.bak"
+    remote_src: yes
+- name: Change network configuration to static IP
+  lineinfile:
+    path: "/etc/sysconfig/network-scripts/ifcfg-{{ interface }}"
+    regexp: '^BOOTPROTO='
+    line: 'BOOTPROTO=none'
+    state: present
+- name: Set ONBOOT to yes
+  lineinfile:
+    path: "/etc/sysconfig/network-scripts/ifcfg-{{ interface }}"
+    regexp: '^ONBOOT='
+    line: 'ONBOOT=yes'
+    state: present
+- name: Set static IP address
+  lineinfile:
+    path: "/etc/sysconfig/network-scripts/ifcfg-{{ interface }}"
+    regexp: '^IPADDR='
+    line: "IPADDR={{ new_ip }}"
+    state: present
+- name: Set netmask
+  lineinfile:
+    path: "/etc/sysconfig/network-scripts/ifcfg-{{ interface }}"
+    regexp: '^NETMASK='
+    line: "NETMASK={{ netmask }}"
+    state: present
+- name: Set gateway
+  lineinfile:
+    path: "/etc/sysconfig/network-scripts/ifcfg-{{ interface }}"
+    regexp: '^GATEWAY='
+    line: "GATEWAY={{ gateway }}"
+    state: present
+- name: Set DNS
+  lineinfile:
+    path: "/etc/resolv.conf"
+    regexp: '^nameserver '
+    line: "nameserver {{ dns }}"
+    state: present
+- name: Restart network service
+  systemd:
+    name: network
+    state: restarted

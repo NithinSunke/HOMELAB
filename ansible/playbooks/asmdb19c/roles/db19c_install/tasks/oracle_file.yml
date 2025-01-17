@@ -1,0 +1,27 @@
+---
+- name: Create oracle home directory
+  file:
+    path: "{{ oracle_home }}"
+    state: directory
+    owner: oracle
+    group: oinstall
+    mode: '0755'
+- name: Copy a file and unzip on the remote server
+  copy:
+    src: "/u01/soft/LINUX.X64_193000_db_home.zip"  # Path to the file on the Ansible control host
+    dest: "{{ oracle_home }}/LINUX.X64_193000_db_home.zip"  # Path on the remote server where the file will be copied
+
+- name: Unzip Oracle database installation files
+  become: yes
+  become_user: oracle
+  unarchive:
+    src: "{{ oracle_home }}/LINUX.X64_193000_db_home.zip"
+    dest: "{{ oracle_home }}"
+    remote_src: yes
+
+- name: ownership of  oracle home directory
+  file:
+    path: "{{ oracle_home }}"
+    owner: oracle
+    group: oinstall
+

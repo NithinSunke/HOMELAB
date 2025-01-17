@@ -1,0 +1,11 @@
+---
+- name: Set root password
+  user:
+    name: root
+    password: "{{ ROOT_PASSWORD | password_hash('sha512') }}"
+
+- name: Set oracle user password
+  user:
+     name: oracle
+     password: "{{ ORACLE_PASSWORD  | password_hash('sha512') }}"
+

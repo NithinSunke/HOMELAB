@@ -1,0 +1,27 @@
+---
+- name: Run Oracle Database Installer
+  become: yes
+  become_user: oracle
+  shell: >
+    {{ oracle_home }}/runInstaller -ignorePrereq -waitforcompletion -silent
+    -responseFile {{ oracle_home }}/install/response/db_install.rsp
+    oracle.install.option=INSTALL_DB_SWONLY
+    ORACLE_HOSTNAME={{ oracle_hostname }}
+    UNIX_GROUP_NAME=oinstall
+    INVENTORY_LOCATION={{ ora_inventory }}
+    SELECTED_LANGUAGES={{ ora_languages }}
+    ORACLE_HOME={{ oracle_home }}
+    ORACLE_BASE={{ oracle_base }}
+    oracle.install.db.InstallEdition=EE
+    oracle.install.db.OSDBA_GROUP=dba
+    oracle.install.db.OSBACKUPDBA_GROUP=dba
+    oracle.install.db.OSDGDBA_GROUP=dba
+    oracle.install.db.OSKMDBA_GROUP=dba
+    oracle.install.db.OSRACDBA_GROUP=dba
+    SECURITY_UPDATES_VIA_MYORACLESUPPORT=false
+    DECLINE_SECURITY_UPDATES=true
+  register: install_output
+  ignore_errors: yes
+- name: Check installation output
+  debug:
+    var: install_output.stdout_lines

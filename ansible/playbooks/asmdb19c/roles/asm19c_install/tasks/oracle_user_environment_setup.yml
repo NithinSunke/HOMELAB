@@ -1,0 +1,29 @@
+---
+- name: Create environment script
+  copy:
+    dest: "/home/grid/profile_asm.sh"
+    content: |
+      # Regular settings.
+      export TMP=/tmp
+      export TMPDIR=$TMP
+      export ORACLE_HOSTNAME={{ node_fq_hostname }}
+      export ORACLE_BASE={{ grid_base }}
+      export ORACLE_HOME={{ grid_home }}
+      export ORACLE_SID={{ ASMI }}
+      export PATH=/usr/sbin:/usr/local/bin:$PATH
+      export PATH=$ORACLE_HOME/bin:$PATH
+      export LD_LIBRARY_PATH=$ORACLE_HOME/lib:/lib:/usr/lib
+      export CLASSPATH=$ORACLE_HOME/jlib:$ORACLE_HOME/rdbms/jlib
+      export ORA_INVENTORY={{ ora_inventory }}
+
+- name: Add environment script to .bash_profile
+  lineinfile:
+    path: /home/grid/.bash_profile
+    line: ". /home/grid/profile_asm.sh"
+    state: present
+- name: Change ownership of scripts directory
+  file:
+    path: "/home/grid"
+    owner: grid
+    group: oinstall
+    recurse: yes

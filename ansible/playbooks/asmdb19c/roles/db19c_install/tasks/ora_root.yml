@@ -1,0 +1,8 @@
+---
+- name: Execute root.sh
+  shell: "sh {{ oracle_home }}/root.sh"
+  register: root_script_output
+
+- name: Check output of root.sh
+  debug:
+    var: root_script_output.stdout_lines    

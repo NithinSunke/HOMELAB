@@ -1,0 +1,18 @@
+---
+- name: display pre installation of Oracle GI software message
+  debug:
+    msg:
+      - 'This playbook is for installing Oracle GI software 19c , started at {{ansible_date_time.iso8601}}:'
+
+- name: Preparation tasks for installing Oracle GI software
+  block:
+    - import_tasks: prepare_disk.yml 
+    - import_tasks: shared_disks.yml
+    - import_tasks: oracle_user_environment_setup.yml
+    - import_tasks: grid_file.yml
+    - import_tasks: install_grid.yml
+    - import_tasks: ora_root.yml
+    - import_tasks: grid_config.yml
+    - import_tasks: asm_diskgroup.yml
+    - import_tasks: add_new_shared_disk.yml
+#    - import_tasks: add_disk_to_asm.yml

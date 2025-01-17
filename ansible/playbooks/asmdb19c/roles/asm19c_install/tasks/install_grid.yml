@@ -1,0 +1,31 @@
+---
+- name: Run Oracle Grid installation
+  become: yes
+  become_user: grid
+  command: >
+    {{ grid_home }}/gridSetup.sh -ignorePrereq -waitforcompletion -silent
+    -responseFile {{ grid_home }}/install/response/gridsetup.rsp
+    INVENTORY_LOCATION={{ ora_inventory }}
+    SELECTED_LANGUAGES={{ ora_language }}
+    oracle.install.option={{ install_option }}
+    ORACLE_BASE={{ oracle_base }}
+    oracle.install.asm.OSDBA={{ dba_grp }}
+    oracle.install.asm.OSASM={{ osasm_grp }}
+    oracle.install.asm.storageOption=ASM
+    oracle.install.asm.diskGroup.name=CRS
+    oracle.install.asm.diskGroup.redundancy=EXTERNAL
+    oracle.install.asm.diskGroup.disks=/dev/oracleasm/asm-crs-disk1
+    oracle.install.asm.diskGroup.diskDiscoveryString=/dev/oracleasm/*
+    oracle.install.asm.monitorPassword={{ SYS_PASSWORD }}
+    oracle.install.asm.SYSASMPassword={{ SYS_PASSWORD }}
+    oracle.install.asm.configureAFD=false
+    oracle.install.crs.configureRHPS=false
+    oracle.install.crs.config.ignoreDownNodes=false
+    oracle.install.config.managementOption=NONE
+    oracle.install.config.omsPort=0
+    oracle.install.crs.rootconfig.executeRootScript=false
+  register: install_output
+  ignore_errors: yes
+- name: Check installation output
+  debug:
+    var: install_output.stdout_lines

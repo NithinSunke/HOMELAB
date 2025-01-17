@@ -1,0 +1,87 @@
+---
+- name: Install yum-utils
+  yum:
+    name: yum-utils
+    state: present
+
+- name: Install oracle-epel-release-el7
+  yum:
+    name: oracle-epel-release-el7
+    state: present
+
+- name: Enable ol7_developer_EPEL repository
+  command: yum-config-manager --enable ol7_developer_EPEL
+  args:
+    creates: /etc/yum.repos.d/ol7_developer_EPEL.repo
+
+- name: Install sshpass, zip, and unzip
+  yum:
+    name:
+      - sshpass
+      - zip
+      - unzip
+    state: present
+
+- name: Install oracle-database-preinstall-19c
+  yum:
+    name: oracle-database-preinstall-19c
+    state: present
+
+- name: Install required packages
+  yum:
+    name:
+      - bc
+      - binutils
+      - compat-libcap1
+      - compat-libstdc++-33
+      - dtrace-utils
+      - elfutils-libelf
+      - elfutils-libelf-devel
+      - fontconfig-devel
+      - glibc
+      - glibc-devel
+      - ksh
+      - libaio
+      - libaio-devel
+      - libdtrace-ctf-devel
+      - libXrender
+      - libXrender-devel
+      - libX11
+      - libXau
+      - libXi
+      - libXtst
+      - libgcc
+      - librdmacm-devel
+      - libstdc++
+      - libstdc++-devel
+      - libxcb
+      - make
+      - net-tools
+      - nfs-utils
+      - python
+      - python-configshell
+      - python-rtslib
+      - python-six
+      - targetcli
+      - smartmontools
+      - sysstat
+      - unixODBC
+      - chrony
+    state: present
+
+- name: Stop and disable firewalld
+  service:
+    name: firewalld
+    state: stopped
+    enabled: no
+
+- name: Set SELinux to permissive in configuration
+  lineinfile:
+    path: /etc/selinux/config
+    regexp: '^SELINUX='
+    line: 'SELINUX=permissive'
+
+- name: Set SELinux to permissive in current session
+  command: setenforce permissive
+  args:
+    warn: false

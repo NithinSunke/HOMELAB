@@ -1,0 +1,11 @@
+DOMAIN_NAME: "scslabs.com"
+ORACLE_TERM: "xterm"
+oracle_user:  "oracle"
+grid_user: grid
+root_user: root
+node_fq_hostname:      "osiasmdb01.scslabs.com"
+interface: "eth0"  # Change this to your network interface name
+new_ip: "192.168.1.21"  # Set your desired static IP
+netmask: "255.255.255.0"  # Set your desired netmask
+gateway: "192.168.1.1"  # Set your desired gateway
+dns: "192.168.1.10"  # Set your desired DNS server

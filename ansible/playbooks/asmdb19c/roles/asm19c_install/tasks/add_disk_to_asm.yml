@@ -1,0 +1,32 @@
+---
+- name: Check if the ASM disk group exists
+  become: yes
+  become_user: grid
+  shell: |
+    . /home/grid/profile_asm.sh
+    sqlplus -s / as sysasm <<EOF
+    SET HEADING OFF;
+    SELECT COUNT(*) FROM v\$asm_diskgroup WHERE name = 'RECO';
+    EXIT;
+    EOF
+  register: diskgroup_check
+
+- name: Fail if ASM disk group does not exist
+  fail:
+    msg: "ASM disk group RECO does not exist."
+  when: diskgroup_check.stdout | int == 0
+
+- name: Add new disk to ASM disk group
+  become: yes
+  become_user: grid
+  shell: |
+    . /home/grid/profile_asm.sh
+    sqlplus -s / as sysasm <<EOF
+    ALTER DISKGROUP RECO ADD DISK '/dev/oracleasm/asm-reco-disk2';
+    EXIT;
+    EOF
+  register: add_disk_output
+
+- name: Check output of adding disk
+  debug:
+    var: add_disk_output.stdout_lines

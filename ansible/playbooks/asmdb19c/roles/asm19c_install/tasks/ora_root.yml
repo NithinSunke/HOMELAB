@@ -1,0 +1,15 @@
+---
+- name: Execute orainstRoot.sh
+  shell: "sh {{ ora_inventory }}/orainstRoot.sh"
+  register: orainst_output
+- name: Check output of orainstRoot.sh
+  debug:
+    var: orainst_output.stdout_lines
+
+- name: Execute root.sh
+  shell: "sh {{ grid_home }}/root.sh"
+  register: root_script_output
+
+- name: Check output of root.sh
+  debug:
+    var: root_script_output.stdout_lines    

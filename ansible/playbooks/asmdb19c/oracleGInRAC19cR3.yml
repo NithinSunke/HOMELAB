@@ -1,0 +1,9 @@
+- hosts: asmdb
+  become: yes
+  become_user: "{{ root_user }}"
+  vars_files:
+    - secrets.yml
+  roles: 
+  #  - host_setup
+  #  - asm19c_install
+  #  - db19c_install
