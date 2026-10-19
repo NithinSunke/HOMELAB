@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RMAN Console</title>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2126; --muted: #6a7280;
+    --line: #dfe3e8; --accent: #1a73e8; --ok: #1e7f4f; --warn: #a8700a;
+    --bad: #c0392b; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15181c; --panel: #1d2126; --ink: #e8eaed; --muted: #9aa3ad;
+      --line: #2e343b; --accent: #7cacf8; --ok: #5bc48b; --warn: #e0b250;
+      --bad: #f28b82;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 20px 16px 8px; max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 8px 16px 48px;
+         display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 900px) { main { grid-template-columns: 340px 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 10px; padding: 14px 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 10px; letter-spacing: .02em;
+              text-transform: uppercase; color: var(--muted); }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
+  input, select, textarea { width: 100%; padding: 7px 9px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    font: inherit; }
+  input[type=checkbox] { width: auto; margin-right: 6px; vertical-align: -2px; }
+  button { font: inherit; padding: 7px 13px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px;
+       padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  tr.sel td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .pill { font-size: 11px; padding: 2px 7px; border-radius: 99px;
+          border: 1px solid currentColor; white-space: nowrap; }
+  .RUNNING { color: var(--accent); } .SUCCESS { color: var(--ok); }
+  .FAILED { color: var(--bad); } .QUEUED { color: var(--muted); }
+  .CANCELLED { color: var(--warn); }
+  pre.log { font-family: var(--mono); font-size: 12px; line-height: 1.45;
+    background: #0e1114; color: #d7dde3; padding: 12px; border-radius: 8px;
+    height: 420px; overflow: auto; margin: 0; white-space: pre-wrap;
+    word-break: break-word; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .err { color: var(--bad); font-size: 13px; margin-top: 8px; }
+  .ok { color: var(--ok); font-size: 13px; margin-top: 8px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const TOKEN_KEY = "rman-console-token";
+function useToken() {
+  const [token, setToken] = useState(() => {
+    try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; }
+  });
+  const save = (t) => {
+    setToken(t);
+    try { localStorage.setItem(TOKEN_KEY, t); } catch { /* private mode */ }
+  };
+  return [token, save];
+}
+
+function api(token) {
+  const call = async (path, opts = {}) => {
+    const res = await fetch(path, {
+      ...opts,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(opts.headers || {}),
+      },
+    });
+    if (res.status === 204) return null;
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+    return body;
+  };
+  return {
+    targets: () => call("/api/targets"),
+    addTarget: (t) => call("/api/targets", { method: "POST", body: JSON.stringify(t) }),
+    delTarget: (id) => call(`/api/targets/${id}`, { method: "DELETE" }),
+    testTarget: (id) => call(`/api/targets/${id}/test`, { method: "POST" }),
+    jobs: () => call("/api/jobs?limit=50"),
+    types: () => call("/api/backup-types"),
+    runJob: (j) => call("/api/jobs", { method: "POST", body: JSON.stringify(j) }),
+    cancelJob: (id) => call(`/api/jobs/${id}/cancel`, { method: "POST" }),
+    script: (id) => call(`/api/jobs/${id}/script`),
+  };
+}
+
+const BLANK_TARGET = {
+  name: "", hostname: "", ssh_port: 22, ssh_user: "oracle",
+  ssh_key_path: "/home/oracle/.ssh/id_rsa",
+  oracle_home: "", oracle_sid: "", db_unique_name: "",
+  channels: 2, compressed: true, backup_format: "", catalog_connect: "", notes: "",
+};
+
+function TargetForm({ onAdd }) {
+  const [t, setT] = useState(BLANK_TARGET);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => {
+    const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+    setT((p) => ({ ...p, [k]: v }));
+  };
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr(""); setBusy(true);
+    try {
+      const payload = { ...t, channels: Number(t.channels), ssh_port: Number(t.ssh_port) };
+      for (const k of ["db_unique_name", "backup_format", "catalog_connect", "notes"]) {
+        if (!payload[k]) payload[k] = null;
+      }
+      await onAdd(payload);
+      setT(BLANK_TARGET);
+    } catch (e2) { setErr(String(e2.message || e2)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={submit}>
+      <label>Name</label>
+      <input value={t.name} onChange={set("name")} placeholder="prod-erp" required />
+      <div className="grid2">
+        <div><label>Host</label>
+          <input value={t.hostname} onChange={set("hostname")} placeholder="db01.example.com" required /></div>
+        <div><label>SSH port</label>
+          <input type="number" value={t.ssh_port} onChange={set("ssh_port")} /></div>
+      </div>
+      <div className="grid2">
+        <div><label>SSH user</label>
+          <input value={t.ssh_user} onChange={set("ssh_user")} /></div>
+        <div><label>Channels</label>
+          <input type="number" min="1" max="32" value={t.channels} onChange={set("channels")} /></div>
+      </div>
+      <label>SSH private key (path on the app server)</label>
+      <input value={t.ssh_key_path} onChange={set("ssh_key_path")} required />
+      <label>ORACLE_HOME</label>
+      <input value={t.oracle_home} onChange={set("oracle_home")}
+             placeholder="/u01/app/oracle/product/19.0.0/dbhome_1" required />
+      <div className="grid2">
+        <div><label>ORACLE_SID</label>
+          <input value={t.oracle_sid} onChange={set("oracle_sid")} placeholder="ORCL" required /></div>
+        <div><label>db_unique_name</label>
+          <input value={t.db_unique_name} onChange={set("db_unique_name")} placeholder="optional" /></div>
+      </div>
+      <label>Backup destination (blank uses the FRA)</label>
+      <input value={t.backup_format} onChange={set("backup_format")} placeholder="/backup/rman" />
+      <details style={{ marginTop: 10 }}>
+        <summary>Recovery catalog (optional)</summary>
+        <label>Catalog connect string</label>
+        <input value={t.catalog_connect} onChange={set("catalog_connect")}
+               placeholder="rcat/password@catdb" />
+        <div className="note">
+          Stored in the database and written into the command file on the target
+          with 0600 permissions. Leave blank to use the control file only.
+        </div>
+      </details>
+      <label style={{ marginTop: 10 }}>
+        <input type="checkbox" checked={t.compressed} onChange={set("compressed")} />
+        Compressed backupsets
+      </label>
+      <div className="row" style={{ marginTop: 12 }}>
+        <button className="primary" disabled={busy}>{busy ? "Saving..." : "Add target"}</button>
+      </div>
+      {err && <div className="err">{err}</div>}
+    </form>
+  );
+}
+
+function TargetList({ targets, onDelete, onTest }) {
+  const [msg, setMsg] = useState({});
+  const test = async (id) => {
+    setMsg((m) => ({ ...m, [id]: { pending: true } }));
+    try {
+      const r = await onTest(id);
+      setMsg((m) => ({ ...m, [id]: r }));
+    } catch (e) { setMsg((m) => ({ ...m, [id]: { ok: false, detail: String(e.message || e) } })); }
+  };
+  if (!targets.length) return <div className="note">No targets yet.</div>;
+  return (
+    <div>
+      {targets.map((t) => (
+        <div key={t.id} style={{ borderBottom: "1px solid var(--line)", padding: "8px 0" }}>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <strong>{t.name}</strong>
+            <span className="note">{t.ssh_user}@{t.hostname}</span>
+          </div>
+          <div className="note">
+            SID {t.oracle_sid} &middot; {t.channels} channel{t.channels > 1 ? "s" : ""}
+            {t.compressed ? " · compressed" : ""}
+            {t.has_catalog ? " · catalog" : ""}
+          </div>
+          <div className="row" style={{ marginTop: 6 }}>
+            <button onClick={() => test(t.id)}
+                    disabled={msg[t.id] && msg[t.id].pending}>
+              {msg[t.id] && msg[t.id].pending ? "Testing..." : "Test connection"}
+            </button>
+            <button onClick={() => onDelete(t.id)}>Remove</button>
+          </div>
+          {msg[t.id] && !msg[t.id].pending && (
+            <div className={msg[t.id].ok ? "ok" : "err"}>{msg[t.id].detail}</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RunPanel({ targets, types, onRun }) {
+  const [targetId, setTargetId] = useState("");
+  const [type, setType] = useState("LEVEL0");
+  const [arc, setArc] = useState(true);
+  const [del, setDel] = useState(false);
+  const [ctl, setCtl] = useState(true);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!targetId && targets.length) setTargetId(String(targets[0].id));
+  }, [targets, targetId]);
+
+  const go = async () => {
+    setErr(""); setBusy(true);
+    try {
+      await onRun({
+        target_id: Number(targetId), backup_type: type,
+        include_archivelog: arc, delete_archivelog: del, backup_controlfile: ctl,
+      });
+    } catch (e) { setErr(String(e.message || e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div>
+      <div className="row" style={{ alignItems: "flex-end" }}>
+        <div style={{ flex: "1 1 180px" }}>
+          <label>Target</label>
+          <select value={targetId} onChange={(e) => setTargetId(e.target.value)}>
+            {targets.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+        <div style={{ flex: "1 1 200px" }}>
+          <label>Backup type</label>
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            {types.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+        <button className="primary" onClick={go} disabled={busy || !targetId}>
+          {busy ? "Starting..." : "Run backup"}
+        </button>
+      </div>
+      <div className="row" style={{ marginTop: 10 }}>
+        {type !== "ARCHIVELOG" && (
+          <label style={{ margin: 0 }}>
+            <input type="checkbox" checked={arc} onChange={(e) => setArc(e.target.checked)} />
+            Include archive logs
+          </label>
+        )}
+        <label style={{ margin: 0 }}>
+          <input type="checkbox" checked={del} onChange={(e) => setDel(e.target.checked)} />
+          Delete archive logs after backup
+        </label>
+        <label style={{ margin: 0 }}>
+          <input type="checkbox" checked={ctl} onChange={(e) => setCtl(e.target.checked)} />
+          Back up control file
+        </label>
+      </div>
+      {del && (
+        <div className="note" style={{ color: "var(--warn)" }}>
+          DELETE INPUT removes archive logs from disk once they are backed up.
+          Make sure the backup destination is sound before relying on this.
+        </div>
+      )}
+      {err && <div className="err">{err}</div>}
+    </div>
+  );
+}
+
+function JobTable({ jobs, targets, selected, onSelect, onCancel }) {
+  const nameOf = (id) => (targets.find((t) => t.id === id) || {}).name || id;
+  const when = (s) => (s ? new Date(s).toLocaleString() : "-");
+  const dur = (j) => {
+    if (!j.started_at) return "-";
+    const end = j.finished_at ? new Date(j.finished_at) : new Date();
+    const secs = Math.max(0, Math.round((end - new Date(j.started_at)) / 1000));
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return m ? `${m}m ${s}s` : `${s}s`;
+  };
+  if (!jobs.length) return <div className="note">No jobs yet.</div>;
+  return (
+    <table>
+      <thead><tr>
+        <th>#</th><th>Target</th><th>Type</th><th>Status</th>
+        <th>Started</th><th>Duration</th><th></th>
+      </tr></thead>
+      <tbody>
+        {jobs.map((j) => (
+          <tr key={j.id} className={selected === j.id ? "sel" : ""}
+              onClick={() => onSelect(j.id)} style={{ cursor: "pointer" }}>
+            <td>{j.id}</td>
+            <td>{nameOf(j.target_id)}</td>
+            <td>{j.backup_type}</td>
+            <td><span className={"pill " + j.status}>{j.status}</span></td>
+            <td>{when(j.started_at)}</td>
+            <td>{dur(j)}</td>
+            <td>
+              {(j.status === "RUNNING" || j.status === "QUEUED") && (
+                <button onClick={(e) => { e.stopPropagation(); onCancel(j.id); }}>
+                  Cancel
+                </button>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function LogPanel({ jobId, token }) {
+  const [lines, setLines] = useState("");
+  const [status, setStatus] = useState("");
+  const boxRef = useRef(null);
+  const stick = useRef(true);
+
+  useEffect(() => {
+    if (!jobId) return;
+    setLines(""); setStatus("");
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(
+      `${proto}://${location.host}/ws/jobs/${jobId}?token=${encodeURIComponent(token)}`
+    );
+    ws.onmessage = (ev) => {
+      const m = JSON.parse(ev.data);
+      if (m.type === "log") setLines((p) => p + m.data);
+      else if (m.type === "status") setStatus(m.status);
+    };
+    ws.onerror = () => setStatus((s) => s || "stream error");
+    return () => ws.close();
+  }, [jobId, token]);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [lines]);
+
+  const onScroll = () => {
+    const el = boxRef.current;
+    if (!el) return;
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  };
+
+  if (!jobId) return <div className="note">Select a job to see its log.</div>;
+  return (
+    <div>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+        <strong>Job {jobId}</strong>
+        {status && <span className={"pill " + status}>{status}</span>}
+      </div>
+      <pre className="log" ref={boxRef} onScroll={onScroll}>
+        {lines || "Waiting for output..."}
+      </pre>
+    </div>
+  );
+}
+
+function App() {
+  const [token, setToken] = useToken();
+  const [draft, setDraft] = useState(token);
+  const [targets, setTargets] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  const [types, setTypes] = useState([]);
+  const [sel, setSel] = useState(null);
+  const [err, setErr] = useState("");
+
+  const client = api(token);
+
+  const refresh = useCallback(async () => {
+    if (!token) return;
+    try {
+      const [t, j] = await Promise.all([client.targets(), client.jobs()]);
+      setTargets(t); setJobs(j); setErr("");
+    } catch (e) { setErr(String(e.message || e)); }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    client.types().then(setTypes).catch(() => {});
+    refresh();
+    const id = setInterval(refresh, 4000);
+    return () => clearInterval(id);
+  }, [token, refresh]);
+
+  if (!token) {
+    return (
+      <main style={{ gridTemplateColumns: "1fr", maxWidth: 420, marginTop: 80 }}>
+        <div className="panel">
+          <h2>API token</h2>
+          <p className="note">
+            The value of RMAN_CONSOLE_TOKEN on the server. Stored in this
+            browser only.
+          </p>
+          <input type="password" value={draft} onChange={(e) => setDraft(e.target.value)}
+                 onKeyDown={(e) => e.key === "Enter" && setToken(draft)} />
+          <div className="row" style={{ marginTop: 10 }}>
+            <button className="primary" onClick={() => setToken(draft)}>Continue</button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <React.Fragment>
+      <header>
+        <h1>RMAN Console</h1>
+        <div className="sub">
+          Trigger and watch RMAN backups across registered Oracle hosts.
+          <button style={{ float: "right", padding: "3px 9px", fontSize: 12 }}
+                  onClick={() => setToken("")}>Sign out</button>
+        </div>
+      </header>
+      <main>
+        <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
+          <div className="panel">
+            <h2>Targets</h2>
+            <TargetList targets={targets}
+              onDelete={async (id) => { await client.delTarget(id); refresh(); }}
+              onTest={(id) => client.testTarget(id)} />
+          </div>
+          <div className="panel">
+            <h2>Add target</h2>
+            <TargetForm onAdd={async (t) => { await client.addTarget(t); refresh(); }} />
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
+          <div className="panel">
+            <h2>Run a backup</h2>
+            <RunPanel targets={targets} types={types}
+              onRun={async (j) => {
+                const job = await client.runJob(j);
+                setSel(job.id); refresh();
+              }} />
+          </div>
+          <div className="panel">
+            <h2>Jobs</h2>
+            {err && <div className="err">{err}</div>}
+            <JobTable jobs={jobs} targets={targets} selected={sel}
+              onSelect={setSel}
+              onCancel={async (id) => { await client.cancelJob(id); refresh(); }} />
+          </div>
+          <div className="panel">
+            <h2>Log</h2>
+            <LogPanel jobId={sel} token={token} />
+          </div>
+        </div>
+      </main>
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
