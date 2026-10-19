@@ -25,6 +25,9 @@ class Target(Base):
     ssh_port: Mapped[int] = mapped_column(Integer, default=22)
     ssh_user: Mapped[str] = mapped_column(String(64), default="oracle")
     ssh_key_path: Mapped[str] = mapped_column(String(512))
+    # Run RMAN as this user via sudo. On OCI the SSH key belongs to opc
+    # while the database runs as oracle. Null means run as the SSH user.
+    run_as_user: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     oracle_home: Mapped[str] = mapped_column(String(512))
     oracle_sid: Mapped[str] = mapped_column(String(64))

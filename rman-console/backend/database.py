@@ -36,9 +36,30 @@ def init_db() -> None:
 
     try:
         Base.metadata.create_all(engine)
+        _add_missing_columns()
     except OperationalError as exc:
         raise RuntimeError(
             f"Cannot open the database file at {DB_PATH}.\n"
             f"Check RMAN_CONSOLE_DB in your .env, or comment it out to keep "
             f"the database beside the project.\nUnderlying error: {exc}"
         ) from exc
+
+
+def _add_missing_columns() -> None:
+    """Tiny forward migration for databases created by an earlier version.
+
+    Enough for a single-file SQLite tool; anything more would call for Alembic.
+    """
+    from sqlalchemy import text
+
+    additions = {
+        "targets": {"run_as_user": "VARCHAR(64)"},
+    }
+    with engine.begin() as conn:
+        for table, columns in additions.items():
+            existing = {
+                row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))
+            }
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))

@@ -31,6 +31,7 @@ class TargetIn(BaseModel):
     ssh_port: int = Field(default=22, ge=1, le=65535)
     ssh_user: str = Field(default="oracle", max_length=64)
     ssh_key_path: str = Field(min_length=1, max_length=512)
+    run_as_user: str | None = Field(default=None, max_length=64)
 
     oracle_home: str = Field(min_length=1, max_length=512)
     oracle_sid: str = Field(min_length=1, max_length=64)
@@ -61,6 +62,17 @@ class TargetIn(BaseModel):
     def _user_ok(cls, v: str) -> str:
         if not _NAME_RE.match(v):
             raise ValueError("ssh_user may contain letters, digits, dot, dash, underscore")
+        return v
+
+    @field_validator("run_as_user")
+    @classmethod
+    def _run_as_ok(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
+        if not _NAME_RE.match(v):
+            raise ValueError(
+                "run_as_user may contain letters, digits, dot, dash, underscore"
+            )
         return v
 
     @field_validator("oracle_home")
@@ -114,6 +126,7 @@ class TargetOut(BaseModel):
     ssh_port: int
     ssh_user: str
     ssh_key_path: str
+    run_as_user: str | None
     oracle_home: str
     oracle_sid: str
     db_unique_name: str | None

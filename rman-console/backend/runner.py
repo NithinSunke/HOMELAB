@@ -54,6 +54,17 @@ def _now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
+def _as_user(target: Target, command: str) -> str:
+    """Wrap a command in sudo when the target runs RMAN as another user.
+
+    -n makes sudo fail immediately rather than block on a password prompt,
+    which would otherwise hang the job until the timeout.
+    """
+    if not target.run_as_user:
+        return command
+    return f"sudo -n -u {shlex.quote(target.run_as_user)} {command}"
+
+
 async def _connect(target: Target) -> asyncssh.SSHClientConnection:
     """Open an SSH connection with host key verification enabled."""
     return await asyncssh.connect(
@@ -69,23 +80,46 @@ async def test_target(target: Target) -> tuple[bool, str]:
     """Check SSH reachability and that the Oracle home looks usable."""
     try:
         async with await _connect(target) as conn:
-            probe = (
-                f"test -x {shlex.quote(target.oracle_home)}/bin/rman "
-                f"&& echo RMAN_OK || echo RMAN_MISSING"
+            who = f"{target.ssh_user}@{target.hostname}"
+
+            if target.run_as_user:
+                sudo_check = await conn.run(
+                    _as_user(target, "id -un"), check=False
+                )
+                if sudo_check.exit_status != 0:
+                    err = " ".join((sudo_check.stderr or "").split())[:200]
+                    return False, (
+                        f"Connected as {who}, but "
+                        f"sudo -n -u {target.run_as_user} failed. The {target.ssh_user} "
+                        f"user needs passwordless sudo to {target.run_as_user}. "
+                        f"Add a sudoers rule such as:  {target.ssh_user} ALL=({target.run_as_user}) "
+                        f"NOPASSWD: ALL   [{err}]"
+                    )
+                who = (
+                    f"{target.ssh_user}@{target.hostname}, running as "
+                    f"{(sudo_check.stdout or '').strip()}"
+                )
+
+            probe = _as_user(
+                target,
+                f"test -x {shlex.quote(target.oracle_home)}/bin/rman",
             )
             result = await conn.run(probe, check=False)
-            out = (result.stdout or "").strip()
-            if "RMAN_OK" not in out:
+            if result.exit_status != 0:
                 return False, (
-                    f"Connected as {target.ssh_user}@{target.hostname}, but "
-                    f"{target.oracle_home}/bin/rman is missing or not executable."
+                    f"Connected as {who}, but {target.oracle_home}/bin/rman is "
+                    "missing or not executable for that user. Check ORACLE_HOME."
                 )
+
             ver = await conn.run(
-                f"{shlex.quote(target.oracle_home)}/bin/rman 2>&1 </dev/null | head -2",
+                _as_user(
+                    target,
+                    f"bash -c {shlex.quote(shlex.quote(target.oracle_home) + '/bin/rman < /dev/null 2>&1 | head -2')}",
+                ),
                 check=False,
             )
             banner = " ".join((ver.stdout or "").split())[:200]
-            return True, f"SSH and RMAN both reachable. {banner}"
+            return True, f"Reachable as {who}. {banner}"
     except asyncssh.HostKeyNotVerifiable:
         return False, (
             f"The host key for {target.hostname} is not in {KNOWN_HOSTS}. "
@@ -199,18 +233,66 @@ async def _run_job_inner(job_id: int) -> None:
             await sftp.chmod(f"{remote_dir}/backup.rman", 0o600)
             await sftp.chmod(f"{remote_dir}/run.sh", 0o700)
 
+        if target_obj.run_as_user:
+            # Hand the directory to the Oracle user so the wrapper can write
+            # its log there. 755 keeps it readable by the SSH user, which is
+            # how the log is streamed back.
+            owner = shlex.quote(target_obj.run_as_user)
+            chown = (
+                f"sudo -n chown -R {owner} {q_dir} && "
+                f"sudo -n chmod 755 {q_dir} && "
+                f"sudo -n chmod 600 {q_dir}/backup.rman && "
+                f"sudo -n chmod 700 {q_dir}/run.sh"
+            )
+            res = await conn.run(chown, check=False)
+            if res.exit_status != 0:
+                err = " ".join((res.stderr or "").split())[:300]
+                raise RuntimeError(
+                    f"Could not hand {remote_dir} to {target_obj.run_as_user}. "
+                    f"Does {target_obj.ssh_user} have passwordless sudo? [{err}]"
+                )
+            _publish(
+                job_id,
+                {"type": "log",
+                 "data": f"Running RMAN as {target_obj.run_as_user} via sudo\n"},
+            )
+
         # setsid gives the wrapper its own process group, so a cancel can
-        # signal the whole tree rather than just the shell.
+        # signal the whole tree rather than just the shell. Output goes to
+        # /dev/null because the wrapper writes everything into backup.log
+        # itself; the launching user may not be able to write here any more.
         launch = (
-            f"cd {q_dir} && setsid nohup ./run.sh >wrapper.out 2>&1 < /dev/null & "
-            f"echo $!"
+            f"cd {q_dir} && "
+            + _as_user(target_obj, "setsid nohup ./run.sh")
+            + " >/dev/null 2>&1 < /dev/null &"
         )
-        res = await conn.run(launch, check=True)
-        pid = int((res.stdout or "0").strip() or 0)
+        res = await conn.run(launch, check=False)
+        if res.exit_status not in (0, None):
+            err = " ".join((res.stderr or "").split())[:300]
+            raise RuntimeError(f"Could not start RMAN on the target. [{err}]")
+
+        # The wrapper writes its own pid, which is also its process group
+        # because setsid made it a session leader. Reading it from the file
+        # works whether or not sudo is in the way.
+        pid = await _read_pid(conn, remote_dir)
         _set_status(job_id, pid=pid)
-        _publish(job_id, {"type": "log", "data": f"RMAN started, pid {pid}\n\n"})
+        shown = pid if pid else "unknown"
+        _publish(job_id, {"type": "log", "data": f"RMAN started, pid {shown}\n\n"})
 
         await _follow(conn, job_id, remote_dir)
+
+
+async def _read_pid(
+    conn: asyncssh.SSHClientConnection, remote_dir: str, attempts: int = 10
+) -> int | None:
+    """Wait briefly for the wrapper to record its pid."""
+    for _ in range(attempts):
+        res = await conn.run(f"cat {shlex.quote(remote_dir)}/pid", check=False)
+        raw = (res.stdout or "").strip()
+        if raw.isdigit():
+            return int(raw)
+        await asyncio.sleep(1)
+    return None
 
 
 async def _follow(
@@ -329,8 +411,11 @@ async def cancel(job_id: int) -> tuple[bool, str]:
     if pid and target:
         try:
             async with await _connect(target) as conn:
-                # Negative pid signals the whole process group.
-                await conn.run(f"kill -TERM -{int(pid)}", check=False)
+                # Negative pid signals the whole process group. Under sudo the
+                # SSH user cannot signal another user's processes directly.
+                await conn.run(
+                    _as_user(target, f"kill -TERM -{int(pid)}"), check=False
+                )
         except (OSError, asyncssh.Error) as exc:
             return False, f"could not signal the target: {exc}"
 

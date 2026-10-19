@@ -129,12 +129,43 @@ For anything beyond a laptop, run it behind a reverse proxy with TLS.
 | Field | Notes |
 | --- | --- |
 | SSH key path | Path **on the app server**, not the target |
+| Run RMAN as | Optional. Leave blank when the SSH user owns the database |
 | ORACLE_HOME | Used to set the environment and locate the `rman` binary |
 | ORACLE_SID | The instance to connect to with `rman target /` |
 | Channels | Parallel disk channels allocated in the `RUN` block |
 | Compressed | Emits `AS COMPRESSED BACKUPSET` |
 | Backup destination | Leave blank to use the Fast Recovery Area |
 | Catalog connect | Optional. Written into the command file on the target with mode 0600 |
+
+### When the SSH user is not the Oracle user
+
+This is the normal arrangement on OCI and on most hardened Linux builds: the
+SSH key belongs to `opc` (or `ec2-user`, or a named admin account) while the
+database runs as `oracle`.
+
+Set **SSH user** to `opc` and **Run RMAN as** to `oracle`. The app then:
+
+- connects as `opc`
+- uploads the command file and wrapper into its own working directory
+- hands that directory to `oracle` with `sudo -n chown`
+- launches the wrapper with `sudo -n -u oracle setsid nohup`
+- reads the log back as `opc`, which is why the directory is left at 0755
+
+The command file stays mode 0600 and owned by `oracle`, since it may carry a
+catalog connect string.
+
+**`opc` needs passwordless sudo to `oracle`.** On OCI images this is usually
+already configured. If not, add a sudoers rule:
+
+```
+opc ALL=(oracle) NOPASSWD: ALL
+opc ALL=(root)   NOPASSWD: /bin/chown, /bin/chmod
+```
+
+The `-n` flag means sudo fails immediately rather than waiting for a password,
+so a missing rule shows up as a clear message instead of a job that hangs
+until the timeout. **Test connection** checks sudo before it checks
+`ORACLE_HOME`, and reports which one failed.
 
 ## Generated RMAN
 
