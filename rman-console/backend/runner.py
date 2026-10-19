@@ -18,7 +18,7 @@ from collections import defaultdict
 import asyncssh
 from asyncssh.public_key import KeyEncryptionError, KeyImportError
 
-from . import rman
+from . import rman, secrets
 from .config import JOB_TIMEOUT_HOURS, KNOWN_HOSTS, POLL_INTERVAL, REMOTE_DIR
 from .database import SessionLocal
 from .models import Job, Target
@@ -67,13 +67,41 @@ def _as_user(target: Target, command: str) -> str:
 
 async def _connect(target: Target) -> asyncssh.SSHClientConnection:
     """Open an SSH connection with host key verification enabled."""
-    return await asyncssh.connect(
-        host=target.hostname,
-        port=target.ssh_port,
-        username=target.ssh_user,
-        client_keys=[target.ssh_key_path],
-        known_hosts=KNOWN_HOSTS,
-    )
+    kwargs: dict = {
+        "host": target.hostname,
+        "port": target.ssh_port,
+        "username": target.ssh_user,
+        "known_hosts": KNOWN_HOSTS,
+    }
+    if target.auth_method == "password":
+        kwargs["password"] = secrets.decrypt(target.ssh_password_enc)
+        # Without this asyncssh would still try keys from the agent and from
+        # ~/.ssh, which muddies the error when the password is wrong.
+        kwargs["client_keys"] = None
+    else:
+        kwargs["client_keys"] = [target.ssh_key_path]
+    return await asyncssh.connect(**kwargs)
+
+
+async def _prime_sudo(
+    conn: asyncssh.SSHClientConnection, target: Target
+) -> tuple[bool, str]:
+    """Authenticate sudo once so later calls can use -n.
+
+    sudo caches the credential for a few minutes, which comfortably covers
+    the chown and the launch that follow. Passing the password on stdin to
+    `sudo -S` keeps it off the command line, where ps would expose it.
+    """
+    password = secrets.decrypt(target.sudo_password_enc)
+    if not password:
+        return True, ""
+    res = await conn.run("sudo -S -p '' -v", input=password + "\n", check=False)
+    if res.exit_status != 0:
+        err = " ".join((res.stderr or "").split())[:200]
+        return False, (
+            f"sudo rejected the password for {target.ssh_user}. [{err}]"
+        )
+    return True, ""
 
 
 async def test_target(target: Target) -> tuple[bool, str]:
@@ -83,6 +111,9 @@ async def test_target(target: Target) -> tuple[bool, str]:
             who = f"{target.ssh_user}@{target.hostname}"
 
             if target.run_as_user:
+                primed, why = await _prime_sudo(conn, target)
+                if not primed:
+                    return False, f"Connected as {who}, but {why}"
                 sudo_check = await conn.run(
                     _as_user(target, "id -un"), check=False
                 )
@@ -92,8 +123,9 @@ async def test_target(target: Target) -> tuple[bool, str]:
                         f"Connected as {who}, but "
                         f"sudo -n -u {target.run_as_user} failed. The {target.ssh_user} "
                         f"user needs passwordless sudo to {target.run_as_user}. "
-                        f"Add a sudoers rule such as:  {target.ssh_user} ALL=({target.run_as_user}) "
-                        f"NOPASSWD: ALL   [{err}]"
+                        f"Either add a sudoers rule such as:  {target.ssh_user} "
+                        f"ALL=({target.run_as_user}) NOPASSWD: ALL   "
+                        f"or set a sudo password on this target.   [{err}]"
                     )
                 who = (
                     f"{target.ssh_user}@{target.hostname}, running as "
@@ -127,6 +159,13 @@ async def test_target(target: Target) -> tuple[bool, str]:
             f">> {KNOWN_HOSTS}"
         )
     except asyncssh.PermissionDenied:
+        if target.auth_method == "password":
+            return False, (
+                f"{target.ssh_user}@{target.hostname} rejected the password. "
+                "Check the user name and password, and that the server allows "
+                "password authentication (PasswordAuthentication yes in "
+                "sshd_config)."
+            )
         return False, (
             f"{target.ssh_user}@{target.hostname} rejected the key. Check that "
             f"the public half of {target.ssh_key_path} is in that user's "
@@ -234,6 +273,9 @@ async def _run_job_inner(job_id: int) -> None:
             await sftp.chmod(f"{remote_dir}/run.sh", 0o700)
 
         if target_obj.run_as_user:
+            primed, why = await _prime_sudo(conn, target_obj)
+            if not primed:
+                raise RuntimeError(why)
             # Hand the directory to the Oracle user so the wrapper can write
             # its log there. 755 keeps it readable by the SSH user, which is
             # how the log is streamed back.
@@ -411,6 +453,8 @@ async def cancel(job_id: int) -> tuple[bool, str]:
     if pid and target:
         try:
             async with await _connect(target) as conn:
+                if target.run_as_user:
+                    await _prime_sudo(conn, target)
                 # Negative pid signals the whole process group. Under sudo the
                 # SSH user cannot signal another user's processes directly.
                 await conn.run(

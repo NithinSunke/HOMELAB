@@ -53,7 +53,13 @@ def _add_missing_columns() -> None:
     from sqlalchemy import text
 
     additions = {
-        "targets": {"run_as_user": "VARCHAR(64)"},
+        "targets": {
+            "run_as_user": "VARCHAR(64)",
+            "auth_method": "VARCHAR(16) DEFAULT 'key'",
+            "ssh_password_enc": "TEXT",
+            "sudo_password_enc": "TEXT",
+            "catalog_connect_enc": "TEXT",
+        },
     }
     with engine.begin() as conn:
         for table, columns in additions.items():

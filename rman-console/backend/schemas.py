@@ -9,7 +9,13 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 BACKUP_TYPES = ("LEVEL0", "LEVEL1_CUM", "LEVEL1_DIFF", "ARCHIVELOG")
 
@@ -30,8 +36,15 @@ class TargetIn(BaseModel):
     hostname: str = Field(min_length=1, max_length=255)
     ssh_port: int = Field(default=22, ge=1, le=65535)
     ssh_user: str = Field(default="oracle", max_length=64)
-    ssh_key_path: str = Field(min_length=1, max_length=512)
+    auth_method: str = Field(default="key")
+    # Required when auth_method is "key".
+    ssh_key_path: str | None = Field(default=None, max_length=512)
+    # Required when auth_method is "password". Write only; never returned.
+    ssh_password: str | None = Field(default=None, max_length=512)
+
     run_as_user: str | None = Field(default=None, max_length=64)
+    # Leave empty when sudo is configured NOPASSWD. Write only.
+    sudo_password: str | None = Field(default=None, max_length=512)
 
     oracle_home: str = Field(min_length=1, max_length=512)
     oracle_sid: str = Field(min_length=1, max_length=64)
@@ -85,11 +98,31 @@ class TargetIn(BaseModel):
 
     @field_validator("ssh_key_path")
     @classmethod
-    def _local_path_ok(cls, v: str) -> str:
+    def _local_path_ok(cls, v: str | None) -> str | None:
         """Path on the app server. Windows paths are accepted here."""
+        if v is None or v == "":
+            return None
         if not _LOCAL_PATH_RE.match(v):
             raise ValueError("ssh_key_path contains characters that are not allowed")
         return v
+
+    @field_validator("auth_method")
+    @classmethod
+    def _auth_ok(cls, v: str) -> str:
+        if v not in ("key", "password"):
+            raise ValueError("auth_method must be 'key' or 'password'")
+        return v
+
+    @model_validator(mode="after")
+    def _credentials_present(self) -> "TargetIn":
+        """Each authentication method needs its own credential."""
+        if self.auth_method == "key" and not self.ssh_key_path:
+            raise ValueError("ssh_key_path is required when auth_method is 'key'")
+        if self.auth_method == "password" and not self.ssh_password:
+            raise ValueError("ssh_password is required when auth_method is 'password'")
+        if self.sudo_password and not self.run_as_user:
+            raise ValueError("sudo_password only applies when run_as_user is set")
+        return self
 
     @field_validator("oracle_sid")
     @classmethod
@@ -125,8 +158,11 @@ class TargetOut(BaseModel):
     hostname: str
     ssh_port: int
     ssh_user: str
-    ssh_key_path: str
+    auth_method: str
+    ssh_key_path: str | None
+    has_ssh_password: bool = False
     run_as_user: str | None
+    has_sudo_password: bool = False
     oracle_home: str
     oracle_sid: str
     db_unique_name: str | None

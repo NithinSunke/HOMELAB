@@ -24,10 +24,18 @@ class Target(Base):
     hostname: Mapped[str] = mapped_column(String(255))
     ssh_port: Mapped[int] = mapped_column(Integer, default=22)
     ssh_user: Mapped[str] = mapped_column(String(64), default="oracle")
-    ssh_key_path: Mapped[str] = mapped_column(String(512))
+    # "key" or "password"
+    auth_method: Mapped[str] = mapped_column(String(16), default="key")
+    # Required when auth_method is "key"; ignored otherwise.
+    ssh_key_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Encrypted at rest. See backend/secrets.py.
+    ssh_password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Run RMAN as this user via sudo. On OCI the SSH key belongs to opc
     # while the database runs as oracle. Null means run as the SSH user.
     run_as_user: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Null means sudo is configured without a password (NOPASSWD).
+    sudo_password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     oracle_home: Mapped[str] = mapped_column(String(512))
     oracle_sid: Mapped[str] = mapped_column(String(64))
@@ -38,8 +46,9 @@ class Target(Base):
     compressed: Mapped[bool] = mapped_column(Boolean, default=True)
     # Leave null to write into the Fast Recovery Area.
     backup_format: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    # Optional recovery catalog connect string, e.g. rcat/pw@catdb
-    catalog_connect: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Optional recovery catalog connect string, e.g. rcat/pw@catdb.
+    # Encrypted at rest because it carries a password.
+    catalog_connect_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)

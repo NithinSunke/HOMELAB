@@ -16,7 +16,7 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
-from . import rman, runner
+from . import rman, runner, secrets
 from .auth import require_token
 from .config import API_TOKEN, BASE_DIR
 from .database import SessionLocal, init_db
@@ -50,7 +50,9 @@ app = FastAPI(title="RMAN Console", version="0.1.0", lifespan=lifespan)
 
 def _target_out(t: Target) -> TargetOut:
     data = TargetOut.model_validate(t)
-    data.has_catalog = bool(t.catalog_connect)
+    data.has_catalog = bool(t.catalog_connect_enc)
+    data.has_ssh_password = bool(t.ssh_password_enc)
+    data.has_sudo_password = bool(t.sudo_password_enc)
     return data
 
 
@@ -71,7 +73,15 @@ def create_target(payload: TargetIn) -> TargetOut:
     with SessionLocal() as db:
         if db.scalar(select(Target).where(Target.name == payload.name)):
             raise HTTPException(409, f"a target named {payload.name} already exists")
-        target = Target(**payload.model_dump())
+        fields = payload.model_dump()
+        # Secrets are encrypted before they touch the database, and the
+        # plaintext fields never become columns.
+        fields["ssh_password_enc"] = secrets.encrypt(fields.pop("ssh_password"))
+        fields["sudo_password_enc"] = secrets.encrypt(fields.pop("sudo_password"))
+        fields["catalog_connect_enc"] = secrets.encrypt(
+            fields.pop("catalog_connect")
+        )
+        target = Target(**fields)
         db.add(target)
         db.commit()
         db.refresh(target)

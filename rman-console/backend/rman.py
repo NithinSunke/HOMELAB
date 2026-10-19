@@ -9,6 +9,8 @@ from __future__ import annotations
 import datetime as dt
 import shlex
 
+from . import secrets
+
 from .models import Job, Target
 
 # RMAN syntax for each backup level. A level 1 backup is differential unless
@@ -44,8 +46,9 @@ def build_script(target: Target, job: Job) -> str:
     """Return the full RMAN command file for this job."""
     lines: list[str] = []
     lines.append("CONNECT TARGET /;")
-    if target.catalog_connect:
-        lines.append(f"CONNECT CATALOG {target.catalog_connect};")
+    catalog = secrets.decrypt(target.catalog_connect_enc)
+    if catalog:
+        lines.append(f"CONNECT CATALOG {catalog};")
     lines.append("")
     lines.append("SHOW ALL;")
     lines.append("")
