@@ -110,8 +110,9 @@ function api(token) {
 }
 
 const BLANK_TARGET = {
-  name: "", hostname: "", ssh_port: 22, ssh_user: "oracle",
-  ssh_key_path: "/home/oracle/.ssh/id_rsa",
+  name: "", hostname: "", ssh_port: 22, ssh_user: "opc",
+  auth_method: "key", ssh_key_path: "", ssh_password: "",
+  run_as_user: "oracle", sudo_password: "",
   oracle_home: "", oracle_sid: "", db_unique_name: "",
   channels: 2, compressed: true, backup_format: "", catalog_connect: "", notes: "",
 };
@@ -129,7 +130,9 @@ function TargetForm({ onAdd }) {
     setErr(""); setBusy(true);
     try {
       const payload = { ...t, channels: Number(t.channels), ssh_port: Number(t.ssh_port) };
-      for (const k of ["db_unique_name", "backup_format", "catalog_connect", "notes"]) {
+      for (const k of ["db_unique_name", "backup_format", "catalog_connect",
+                       "notes", "run_as_user", "ssh_key_path", "ssh_password",
+                       "sudo_password"]) {
         if (!payload[k]) payload[k] = null;
       }
       await onAdd(payload);
@@ -153,8 +156,42 @@ function TargetForm({ onAdd }) {
         <div><label>Channels</label>
           <input type="number" min="1" max="32" value={t.channels} onChange={set("channels")} /></div>
       </div>
-      <label>SSH private key (path on the app server)</label>
-      <input value={t.ssh_key_path} onChange={set("ssh_key_path")} required />
+      <label>Authentication</label>
+      <select value={t.auth_method} onChange={set("auth_method")}>
+        <option value="key">SSH private key</option>
+        <option value="password">Password</option>
+      </select>
+      {t.auth_method === "key" ? (
+        <React.Fragment>
+          <label>SSH private key (path on this machine)</label>
+          <input value={t.ssh_key_path} onChange={set("ssh_key_path")}
+                 placeholder="C:\\Users\\you\\.ssh\\id_rsa" required />
+        </React.Fragment>
+      ) : (
+        <React.Fragment>
+          <label>SSH password</label>
+          <input type="password" value={t.ssh_password}
+                 onChange={set("ssh_password")} required />
+          <div className="note">
+            Encrypted before it is stored. The key sits beside the database, so
+            anyone who can read this machine can decrypt it.
+          </div>
+        </React.Fragment>
+      )}
+      <label>Run RMAN as (blank = the SSH user)</label>
+      <input value={t.run_as_user} onChange={set("run_as_user")} placeholder="oracle" />
+      {t.run_as_user ? (
+        <React.Fragment>
+          <label>sudo password (blank if NOPASSWD)</label>
+          <input type="password" value={t.sudo_password}
+                 onChange={set("sudo_password")} />
+        </React.Fragment>
+      ) : null}
+      <div className="note">
+        Connect as the user who owns the database and leave <em>Run RMAN as</em>
+        blank, or connect as an admin account and set it to <code>oracle</code>.
+        The second needs sudo, with a password here if it is not NOPASSWD.
+      </div>
       <label>ORACLE_HOME</label>
       <input value={t.oracle_home} onChange={set("oracle_home")}
              placeholder="/u01/app/oracle/product/19.0.0/dbhome_1" required />
@@ -209,6 +246,9 @@ function TargetList({ targets, onDelete, onTest }) {
           <div className="note">
             SID {t.oracle_sid} &middot; {t.channels} channel{t.channels > 1 ? "s" : ""}
             {t.compressed ? " · compressed" : ""}
+            {t.auth_method === "password" ? " · password auth" : ""}
+            {t.run_as_user ? ` · sudo to ${t.run_as_user}` : ""}
+            {t.has_sudo_password ? " (pw)" : ""}
             {t.has_catalog ? " · catalog" : ""}
           </div>
           <div className="row" style={{ marginTop: 6 }}>
