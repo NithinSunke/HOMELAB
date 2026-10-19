@@ -16,6 +16,7 @@ import shlex
 from collections import defaultdict
 
 import asyncssh
+from asyncssh.public_key import KeyEncryptionError, KeyImportError
 
 from . import rman
 from .config import JOB_TIMEOUT_HOURS, KNOWN_HOSTS, POLL_INTERVAL, REMOTE_DIR
@@ -87,10 +88,45 @@ async def test_target(target: Target) -> tuple[bool, str]:
             return True, f"SSH and RMAN both reachable. {banner}"
     except asyncssh.HostKeyNotVerifiable:
         return False, (
-            f"Host key for {target.hostname} is not in {KNOWN_HOSTS}. Add it with "
-            f"ssh-keyscan -p {target.ssh_port} {target.hostname} >> {KNOWN_HOSTS}"
+            f"The host key for {target.hostname} is not in {KNOWN_HOSTS}. "
+            f"Add it with:  ssh-keyscan -p {target.ssh_port} {target.hostname} "
+            f">> {KNOWN_HOSTS}"
         )
+    except asyncssh.PermissionDenied:
+        return False, (
+            f"{target.ssh_user}@{target.hostname} rejected the key. Check that "
+            f"the public half of {target.ssh_key_path} is in that user's "
+            "~/.ssh/authorized_keys, and that the user name is right."
+        )
+    except KeyEncryptionError:
+        return False, (
+            f"The private key {target.ssh_key_path} is protected by a "
+            "passphrase. This app does not prompt for one. Use a key without a "
+            "passphrase for automation, or decrypt a copy with:  "
+            "ssh-keygen -p -f <copy-of-key>"
+        )
+    except KeyImportError as exc:
+        return False, (
+            f"Could not read {target.ssh_key_path} as a private key ({exc}). "
+            "PuTTY .ppk files are not supported: convert with PuTTYgen using "
+            "Conversions > Export OpenSSH key. The file must be the private "
+            "key, not the .pub."
+        )
+    except FileNotFoundError as exc:
+        missing = getattr(exc, "filename", None) or str(exc)
+        hint = ""
+        if KNOWN_HOSTS in str(missing):
+            hint = (
+                " Create it, then add the host with ssh-keyscan. On Windows "
+                "the folder is C:\\Users\\<you>\\.ssh"
+            )
+        return False, f"File not found: {missing}.{hint}"
     except (OSError, asyncssh.Error) as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    except Exception as exc:  # noqa: BLE001
+        # A diagnostic endpoint should always report, never 500. Log the
+        # traceback so the server console still has the detail.
+        log.exception("connection test failed for target %s", target.name)
         return False, f"{type(exc).__name__}: {exc}"
 
 

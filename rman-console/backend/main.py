@@ -103,7 +103,11 @@ async def test_target(target_id: int) -> TestResult:
         target = db.get(Target, target_id)
         if target is None:
             raise HTTPException(404, "no such target")
-    ok, detail = await runner.test_target(target)
+    try:
+        ok, detail = await runner.test_target(target)
+    except Exception as exc:  # noqa: BLE001 - never surface a 500 from a test
+        log.exception("unexpected error testing target %s", target_id)
+        ok, detail = False, f"{type(exc).__name__}: {exc}"
     return TestResult(ok=ok, detail=detail)
 
 
