@@ -3,10 +3,13 @@
 SQLite is enough here: job volume is low and rows are small. Sessions are
 short-lived, so the brief blocking inside async code is not worth avoiding.
 """
+from pathlib import Path
+
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-from .config import DATABASE_URL
+from .config import DATABASE_URL, DB_PATH
 
 engine = create_engine(
     DATABASE_URL, connect_args={"check_same_thread": False}, future=True
@@ -21,4 +24,21 @@ class Base(DeclarativeBase):
 def init_db() -> None:
     from . import models  # noqa: F401  (registers the mappings)
 
-    Base.metadata.create_all(engine)
+    parent = Path(DB_PATH).parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Cannot create the folder {parent} for the database file.\n"
+            f"Check RMAN_CONSOLE_DB in your .env, or comment it out to keep "
+            f"the database beside the project.\nUnderlying error: {exc}"
+        ) from exc
+
+    try:
+        Base.metadata.create_all(engine)
+    except OperationalError as exc:
+        raise RuntimeError(
+            f"Cannot open the database file at {DB_PATH}.\n"
+            f"Check RMAN_CONSOLE_DB in your .env, or comment it out to keep "
+            f"the database beside the project.\nUnderlying error: {exc}"
+        ) from exc
